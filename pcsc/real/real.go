@@ -3,7 +3,8 @@
 // Auto-detection: USB polls until a reader appears; BT is skipped if binary not found.
 //
 // Env vars:
-//   BTBRIDGE_PATH  path to btbridge binary (default: ./btbridge beside the executable)
+//
+//	BTBRIDGE_PATH  path to btbridge binary (default: ./btbridge beside the executable)
 package real
 
 import (
@@ -49,13 +50,18 @@ func (r *RealReader) Watch(ch chan<- pcsc.Event) error {
 // ── USB transport ─────────────────────────────────────────────────────────────
 
 // APDU commands (Thai ID card — TNI standard)
+// 0x80, 0xb0, 0x00, 0xf6, 0x02, 0x00, 0x64
 var (
-	cmdSelectAID = []byte{0x00, 0xA4, 0x04, 0x00, 0x08, 0xA0, 0x00, 0x00, 0x00, 0x54, 0x48, 0x00, 0x01}
-	cmdCID       = []byte{0x80, 0xB0, 0x00, 0x04, 0x02, 0x00, 0x0D} // 13 bytes, ASCII
-	cmdNameTH    = []byte{0x80, 0xB0, 0x00, 0x11, 0x02, 0x00, 0x64} // 100 bytes, TIS-620
-	cmdNameEN    = []byte{0x80, 0xB0, 0x00, 0x75, 0x02, 0x00, 0x64} // 100 bytes, ASCII
-	cmdDOB       = []byte{0x80, 0xB0, 0x00, 0xD9, 0x02, 0x00, 0x08} // 8 bytes, ASCII
-	cmdAddress   = []byte{0x80, 0xB0, 0x15, 0x79, 0x02, 0x00, 0x64} // 100 bytes, TIS-620
+	cmdSelectAID  = []byte{0x00, 0xA4, 0x04, 0x00, 0x08, 0xA0, 0x00, 0x00, 0x00, 0x54, 0x48, 0x00, 0x01}
+	cmdCID        = []byte{0x80, 0xB0, 0x00, 0x04, 0x02, 0x00, 0x0D} // 13 bytes, ASCII
+	cmdNameTH     = []byte{0x80, 0xB0, 0x00, 0x11, 0x02, 0x00, 0x64} // 100 bytes, TIS-620
+	cmdNameEN     = []byte{0x80, 0xB0, 0x00, 0x75, 0x02, 0x00, 0x64} // 100 bytes, ASCII
+	cmdDOB        = []byte{0x80, 0xB0, 0x00, 0xD9, 0x02, 0x00, 0x08} // 8 bytes, ASCII
+	cmdAddress    = []byte{0x80, 0xB0, 0x15, 0x79, 0x02, 0x00, 0x64} // 100 bytes, TIS-620
+	cmdGender     = []byte{0x80, 0xB0, 0x00, 0xE1, 0x02, 0x00, 0x01} //  bytes, ASCII
+	cmdIssueDate  = []byte{0x80, 0xB0, 0x01, 0x67, 0x02, 0x00, 0x08} // bytes, ASCII
+	cmdExpireDate = []byte{0x80, 0xB0, 0x01, 0x6F, 0x02, 0x00, 0x08} // bytes, ASCII
+	cmdCardIssuer = []byte{0x80, 0xB0, 0x00, 0xF6, 0x02, 0x00, 0x64} // bytes, TIS-620
 )
 
 func watchUSB(ch chan<- pcsc.Event) error {
@@ -148,13 +154,33 @@ func readCardUSB(ctx *scard.Context, readerName string) (*pcsc.CardData, error) 
 	if err != nil {
 		return nil, fmt.Errorf("READ Address: %w", err)
 	}
+	genderBytes, err := execAPDU(card, cmdGender)
+	if err != nil {
+		return nil, fmt.Errorf("READ Gender: %w", err)
+	}
+	issueDateBytes, err := execAPDU(card, cmdIssueDate)
+	if err != nil {
+		return nil, fmt.Errorf("READ IssueDate: %w", err)
+	}
+	expireDateBytes, err := execAPDU(card, cmdExpireDate)
+	if err != nil {
+		return nil, fmt.Errorf("READ ExpireDate: %w", err)
+	}
+	cardIssuerBytes, err := execAPDU(card, cmdCardIssuer)
+	if err != nil {
+		return nil, fmt.Errorf("READ CardIssuer: %w", err)
+	}
 
 	return &pcsc.CardData{
-		CID:     trimASCII(cidBytes),
-		NameTH:  decodeTIS620(nameTHBytes),
-		NameEN:  trimASCII(nameENBytes),
-		DOB:     trimASCII(dobBytes),
-		Address: decodeTIS620(addressBytes),
+		CID:        trimASCII(cidBytes),
+		NameTH:     decodeTIS620(nameTHBytes),
+		NameEN:     trimASCII(nameENBytes),
+		DOB:        trimASCII(dobBytes),
+		Address:    decodeTIS620(addressBytes),
+		Gender:     trimASCII(genderBytes),
+		IssueDate:  trimASCII(issueDateBytes),
+		ExpireDate: trimASCII(expireDateBytes),
+		CardIssuer: decodeTIS620(cardIssuerBytes),
 	}, nil
 }
 
