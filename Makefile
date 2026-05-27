@@ -1,12 +1,17 @@
-BINARY  := agent
-SIGNAL  := wss://signal-production-b59d.up.railway.app/ws
-ROOM    := demo-room-1
+BINARY      := agent
+BINARY_WIN  := agent.exe
+SIGNAL      := wss://signal-production-b59d.up.railway.app/ws
+ROOM        := demo-room-1
 
-.PHONY: build run run-mock run-bt clean
+.PHONY: build build-windows run run-mock run-bt clean
 
-## build — compile binary
+## build — compile binary (current OS)
 build:
 	go build -o $(BINARY) .
+
+## build-windows — compile Windows binary (must run on Windows; CGO required for PC/SC)
+build-windows:
+	go build -ldflags="-H windowsgui" -o $(BINARY_WIN) .
 
 ## run — real USB PC/SC reader
 run: build
@@ -20,6 +25,6 @@ run-mock: build
 run-bt: build
 	SIGNAL_URL=$(SIGNAL) ROOM_ID=$(ROOM) ./$(BINARY)
 
-## clean — remove binary
+## clean — remove binaries
 clean:
-	rm -f $(BINARY)
+	rm -f $(BINARY) $(BINARY_WIN)
