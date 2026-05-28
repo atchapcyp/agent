@@ -13,6 +13,10 @@ build:
 build-windows:
 	go build -ldflags="-H windowsgui" -o $(BINARY_WIN) .
 
+##
+build-windows-dev:
+	go build -o $(BINARY_WIN) .
+
 ## run — real USB PC/SC reader
 run: build
 	SIGNAL_URL=$(SIGNAL) ROOM_ID=$(ROOM) ./$(BINARY)
@@ -32,6 +36,39 @@ run-qr: build
 ## run-bt — real USB + Bluetooth (btbridge must be beside binary)
 run-bt: build
 	SIGNAL_URL=$(SIGNAL) ROOM_ID=$(ROOM) ./$(BINARY)
+
+
+## run-win — real PC/SC reader (Windows)
+run-win: build-windows
+	powershell -Command "$$env:SIGNAL_URL='$(SIGNAL)'; $$env:ROOM_ID='$(ROOM)'; .\\$(BINARY_WIN)"
+
+## run-mock-win — stdin mock (Windows)
+run-mock-win: build-windows
+	powershell -Command "$$env:PCSC_MOCK='1'; $$env:SIGNAL_URL='$(SIGNAL)'; $$env:ROOM_ID='$(ROOM)'; .\\$(BINARY_WIN)"
+
+## run-mock-qr-win
+run-mock-qr-win: build-windows
+	powershell -Command "$$env:PCSC_MOCK='1'; $$env:QR_MODE='1'; $$env:SIGNAL_URL='$(SIGNAL)'; $$env:ROOM_ID='$(ROOM)'; .\\$(BINARY_WIN)"
+
+## run-qr-win
+run-qr-win: build-windows
+	powershell -Command "$$env:QR_MODE='1'; $$env:SIGNAL_URL='$(SIGNAL)'; $$env:ROOM_ID='$(ROOM)'; .\\$(BINARY_WIN)"
+
+## run-win-dev — real PC/SC reader (dev) (Windows)
+run-win-dev: build-windows-dev
+	powershell -Command "$$env:SIGNAL_URL='$(SIGNAL)'; $$env:ROOM_ID='$(ROOM)'; .\\$(BINARY_WIN)"
+
+## run-mock-win — stdin mock (Windows)
+run-mock-win-dev: build-windows-dev
+	powershell -Command "$$env:PCSC_MOCK='1'; $$env:SIGNAL_URL='$(SIGNAL)'; $$env:ROOM_ID='$(ROOM)'; .\\$(BINARY_WIN)"
+
+## run-mock-qr-win
+run-mock-qr-win-dev: build-windows-dev
+	powershell -Command "$$env:PCSC_MOCK='1'; $$env:QR_MODE='1'; $$env:SIGNAL_URL='$(SIGNAL)'; $$env:ROOM_ID='$(ROOM)'; .\\$(BINARY_WIN)"
+
+## run-qr-win
+run-qr-win-dev: build-windows-dev
+	powershell -Command "$$env:QR_MODE='1'; $$env:SIGNAL_URL='$(SIGNAL)'; $$env:ROOM_ID='$(ROOM)'; .\\$(BINARY_WIN)"
 
 ## clean — remove binaries
 clean:
