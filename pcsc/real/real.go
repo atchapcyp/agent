@@ -36,7 +36,7 @@ func (r *RealReader) Watch(ch chan<- pcsc.Event) error {
 	done := make(chan error, 2)
 
 	go func() { done <- watchUSB(ch) }()
-	go func() { done <- watchBluetooth(ch) }()
+	// go func() { done <- watchBluetooth(ch) }()
 
 	// Log errors from either transport; return only when both exit.
 	for i := 0; i < 2; i++ {
@@ -122,9 +122,9 @@ func waitForUSBReader(ctx *scard.Context) (string, error) {
 }
 
 func readCardUSB(ctx *scard.Context, readerName string) (*pcsc.CardData, error) {
-	card, err := ctx.Connect(readerName, scard.ShareShared, scard.ProtocolT1)
+	card, err := ctx.Connect(readerName, scard.ShareExclusive, scard.ProtocolAny)
 	if err != nil {
-		card, err = ctx.Connect(readerName, scard.ShareShared, scard.ProtocolT0)
+		card, err = ctx.Connect(readerName, scard.ShareExclusive, scard.ProtocolT0)
 		if err != nil {
 			return nil, fmt.Errorf("connect: %w", err)
 		}
@@ -136,39 +136,39 @@ func readCardUSB(ctx *scard.Context, readerName string) (*pcsc.CardData, error) 
 	}
 	cidBytes, err := execAPDU(card, cmdCID)
 	if err != nil {
-		return nil, fmt.Errorf("READ CID: %w", err)
+		fmt.Println(fmt.Errorf("READ CID: %w", err))
 	}
 	nameTHBytes, err := execAPDU(card, cmdNameTH)
 	if err != nil {
-		return nil, fmt.Errorf("READ NameTH: %w", err)
+		fmt.Println(fmt.Errorf("READ NameTH: %w", err))
 	}
 	nameENBytes, err := execAPDU(card, cmdNameEN)
 	if err != nil {
-		return nil, fmt.Errorf("READ NameEN: %w", err)
+		fmt.Println(fmt.Errorf("READ NameEN: %w", err))
 	}
 	dobBytes, err := execAPDU(card, cmdDOB)
 	if err != nil {
-		return nil, fmt.Errorf("READ DOB: %w", err)
+		fmt.Println(fmt.Errorf("READ DOB: %w", err))
 	}
 	addressBytes, err := execAPDU(card, cmdAddress)
 	if err != nil {
-		return nil, fmt.Errorf("READ Address: %w", err)
+		fmt.Println(fmt.Errorf("READ Address: %w", err))
 	}
 	genderBytes, err := execAPDU(card, cmdGender)
 	if err != nil {
-		return nil, fmt.Errorf("READ Gender: %w", err)
+		fmt.Println(fmt.Errorf("READ Gender: %w", err))
 	}
 	issueDateBytes, err := execAPDU(card, cmdIssueDate)
 	if err != nil {
-		return nil, fmt.Errorf("READ IssueDate: %w", err)
+		fmt.Println(fmt.Errorf("READ IssueDate: %w", err))
 	}
 	expireDateBytes, err := execAPDU(card, cmdExpireDate)
 	if err != nil {
-		return nil, fmt.Errorf("READ ExpireDate: %w", err)
+		fmt.Println(fmt.Errorf("READ ExpireDate: %w", err))
 	}
 	cardIssuerBytes, err := execAPDU(card, cmdCardIssuer)
 	if err != nil {
-		return nil, fmt.Errorf("READ CardIssuer: %w", err)
+		fmt.Println(fmt.Errorf("READ CardIssuer: %w", err))
 	}
 
 	return &pcsc.CardData{

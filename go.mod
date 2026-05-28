@@ -5,6 +5,7 @@ go 1.26.2
 require (
 	github.com/ebfe/scard v0.0.0-20241214075232-7af069cabc25
 	github.com/gorilla/websocket v1.5.3
+	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/pion/webrtc/v3 v3.3.6
 	golang.org/x/text v0.37.0
 )
@@ -12,7 +13,6 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/mdp/qrterminal/v3 v3.2.1 // indirect
 	github.com/pion/datachannel v1.5.8 // indirect
 	github.com/pion/dtls/v2 v2.2.12 // indirect
 	github.com/pion/ice/v2 v2.3.38 // indirect
