@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -36,7 +37,15 @@ func (r *RealReader) Watch(ch chan<- pcsc.Event) error {
 	done := make(chan error, 2)
 
 	go func() { done <- watchUSB(ch) }()
-	// go func() { done <- watchBluetooth(ch) }()
+
+	// if runtime.GOOS == "windows" {
+	// 	// On Windows, Bluetooth PC/SC readers are virtualized as standard PC/SC readers.
+	// 	// They are automatically handled by the watchUSB transport once paired.
+	// 	log.Println("[pcsc/real] Windows detected — Bluetooth reader is virtualized natively via PC/SC (no btbridge needed)")
+	// 	done <- nil
+	// } else {
+	// 	go func() { done <- watchBluetooth(ch) }()
+	// }
 
 	// Log errors from either transport; return only when both exit.
 	for i := 0; i < 2; i++ {
@@ -113,7 +122,28 @@ func watchUSB(ch chan<- pcsc.Event) error {
 func waitForUSBReader(ctx *scard.Context) (string, error) {
 	for {
 		readers, err := ctx.ListReaders()
+		log.Printf("[pcsc/usb] readers found: %v", readers)
+
 		if err == nil && len(readers) > 0 {
+			for _, name := range readers {
+				states := []scard.ReaderState{{
+					Reader:       name,
+					CurrentState: scard.StateUnaware,
+				}}
+
+				err := ctx.GetStatusChange(states, 0)
+				if err != nil {
+					log.Println("got error when get status: ", err.Error())
+				}
+
+				for index, state := range states {
+					log.Println(name, " state[", index, "] - EventState: ", state.EventState)
+					decodeEventState(name, state.EventState)
+					// log.Println(name, " CurrentState[", index, "]: ", state.CurrentState)
+					// log.Println(name, " EventState[", index, "]: ", state.EventState)
+				}
+			}
+
 			return readers[0], nil
 		}
 		log.Println("[pcsc/usb] no reader found, retrying in 2s…")
@@ -122,11 +152,21 @@ func waitForUSBReader(ctx *scard.Context) (string, error) {
 }
 
 func readCardUSB(ctx *scard.Context, readerName string) (*pcsc.CardData, error) {
-	card, err := ctx.Connect(readerName, scard.ShareExclusive, scard.ProtocolAny)
+	// Try ShareExclusive first (recommended for USB readers to prevent CertPropSvc interference).
+	card, err := ctx.Connect(readerName, scard.ShareExclusive, scard.ProtocolT0)
 	if err != nil {
-		card, err = ctx.Connect(readerName, scard.ShareExclusive, scard.ProtocolT0)
+		card, err = ctx.Connect(readerName, scard.ShareExclusive, scard.ProtocolAny)
 		if err != nil {
-			return nil, fmt.Errorf("connect: %w", err)
+			// Some virtual drivers (like Bluetooth PC/SC drivers) do not support Exclusive mode.
+			// Fall back to ShareShared if ShareExclusive fails.
+			log.Println("[pcsc/usb] ShareExclusive failed, falling back to ShareShared...")
+			card, err = ctx.Connect(readerName, scard.ShareShared, scard.ProtocolT0)
+			if err != nil {
+				card, err = ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
+				if err != nil {
+					return nil, fmt.Errorf("connect: %w", err)
+				}
+			}
 		}
 	}
 	defer card.Disconnect(scard.LeaveCard)
@@ -316,6 +356,11 @@ func handleBTEvent(ev btEvent, ch chan<- pcsc.Event) {
 // btbridgePath returns the path to the btbridge binary, or empty string if not found.
 // Search order: BTBRIDGE_PATH env var → beside executable → ./btbridge (cwd).
 func btbridgePath() string {
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+
 	if p := os.Getenv("BTBRIDGE_PATH"); p != "" {
 		if _, err := os.Stat(p); err == nil {
 			return p
@@ -327,15 +372,16 @@ func btbridgePath() string {
 	// Look beside the running executable
 	exe, err := os.Executable()
 	if err == nil {
-		candidate := filepath.Join(filepath.Dir(exe), "btbridge")
+		candidate := filepath.Join(filepath.Dir(exe), "btbridge"+ext)
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate
 		}
 	}
 
 	// Fall back to cwd
-	if _, err := os.Stat("./btbridge"); err == nil {
-		return "./btbridge"
+	candidateCWD := "./btbridge" + ext
+	if _, err := os.Stat(candidateCWD); err == nil {
+		return candidateCWD
 	}
 
 	return ""
@@ -355,3 +401,71 @@ func decodeTIS620(b []byte) string {
 func trimASCII(b []byte) string {
 	return strings.TrimRight(strings.TrimRight(string(b), "\x00"), " ")
 }
+
+func decodeEventState(name string, eventState scard.StateFlag) {
+	flags := uint32(eventState) & 0xFFFF
+	counter := uint32(eventState) >> 16
+
+	var active []string
+	checks := []struct {
+		flag uint32
+		name string
+	}{
+		{uint32(scard.StateIgnore), "Ignore"},
+		{uint32(scard.StateChanged), "Changed"},
+		{uint32(scard.StateUnknown), "Unknown"},         // reader removed
+		{uint32(scard.StateUnavailable), "Unavailable"}, // reader inaccessible
+		{uint32(scard.StateEmpty), "Empty"},             // no card
+		{uint32(scard.StatePresent), "Present"},         // card inserted
+		{uint32(scard.StateAtrmatch), "ATRMatch"},
+		{uint32(scard.StateExclusive), "Exclusive"},
+		{uint32(scard.StateInuse), "InUse"},
+		{uint32(scard.StateMute), "Mute"}, // card not responding
+		{uint32(scard.StateUnpowered), "Unpowered"},
+	}
+	for _, c := range checks {
+		if flags&c.flag != 0 {
+			active = append(active, c.name)
+		}
+	}
+
+	log.Printf("[state] %-45s  raw=%-8d  counter=%-4d  flags=%s",
+		name, eventState, counter, strings.Join(active, " | "))
+}
+
+// Feitian bR301 (wired)
+
+// 2026/05/28 17:05:16 Feitian bR301 0  CurrentState[ 0 ]:  0
+// 2026/05/28 17:05:16 Feitian bR301 0  EventState[ 0 ]:  18 <-- actually, it attach to pc but no card but why value is like this?
+
+// 2026/05/28 17:07:46 Feitian bR301 0  CurrentState[ 0 ]:  0
+// 2026/05/28 17:07:46 Feitian bR301 0  EventState[ 0 ]:  65826 <-- actually, it attach to pc and has a card but why value is like this?
+
+// --------
+
+// Feitian bR301 (bluetooth, enabled on Device Manager even turn off)
+
+// 2026/05/28 16:53:14 FT bR301 0  CurrentState[ 0 ]:  0
+// 2026/05/28 16:53:14 FT bR301 0  EventState[ 0 ]:  917522 <-- actually, it turn off but why value is like this?
+
+// 2026/05/28 17:01:10 FT bR301 0  CurrentState[ 0 ]:  0
+// 2026/05/28 17:01:10 FT bR301 0  EventState[ 0 ]:  917522 <-- actually, it turn on but no card but why value is like this?
+
+// 2026/05/28 17:02:44 FT bR301 0  CurrentState[ 0 ]:  0
+// 2026/05/28 17:02:44 FT bR301 0  EventState[ 0 ]:  917522 <-- actually, it turn on and has a card but why value is like this?
+
+// 2026/05/28 17:05:16 FT bR301 0  CurrentState[ 0 ]:  0
+// 2026/05/28 17:05:16 FT bR301 0  EventState[ 0 ]:  917522 <-- actually, it turn on but no card (wired and appare as Feitian bR301 0 instead) but why value is like this?
+
+// 2026/05/28 17:07:46 FT bR301 0  CurrentState[ 0 ]:  0
+// 2026/05/28 17:07:46 FT bR301 0  EventState[ 0 ]:  917522 <-- actually, it turn on and has a card (wired and appare as Feitian bR301 0 instead) but why value is like this?
+
+// -----
+
+// Identiv uTrust 2700 R Smart Card Reader (wired)
+
+// 2026/05/28 16:53:14 Identiv uTrust 2700 R Smart Card Reader 0  CurrentState[ 0 ]:  0
+// 2026/05/28 16:53:14 Identiv uTrust 2700 R Smart Card Reader 0  EventState[ 0 ]:  18 <-- actually, it attach to pc but no card but why value is like this?
+
+// 2026/05/28 16:59:55 Identiv uTrust 2700 R Smart Card Reader 0  CurrentState[ 0 ]:  0
+// 2026/05/28 16:59:55 Identiv uTrust 2700 R Smart Card Reader 0  EventState[ 0 ]:  65826 <-- actually, it attach to pc and has a card but why value is like this?
