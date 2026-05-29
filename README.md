@@ -23,6 +23,7 @@ USB/Bluetooth Card Reader
 - macOS: Xcode CLI tools (`xcode-select --install`)
 - Linux: `libpcsclite-dev` + `pcscd`
 - Windows: WinSCard (built-in)
+    - Driver for Feitain bR301 (Bluetooth case at bR301 Bluetooth Driver folder > bR301Driver.exe): https://github.com/FeitianSmartcardReader/bR301_SDK_Latest 
 
 ## Quick Start
 
