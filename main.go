@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 
-	"github.com/ebfe/scard"
 	"github.com/mdp/qrterminal/v3"
 	"github.com/ntl/thai-id-card-reader/agent/pcsc"
 	"github.com/ntl/thai-id-card-reader/agent/pcsc/real"
@@ -18,20 +17,7 @@ func main() {
 	signalURL := getEnv("SIGNAL_URL", "wss://signal-production-b59d.up.railway.app/ws")
 	roomID := getEnv("ROOM_ID", "demo-room-1")
 
-	qrMode := getEnv("QR_MODE", "0") == "1"
-
-	log.Println("scard.StateUnaware: ", scard.StateUnaware)
-	log.Println("scard.StateIgnore: ", scard.StateIgnore)
-	log.Println("scard.StateChanged: ", scard.StateChanged)
-	log.Println("scard.StateUnknown: ", scard.StateUnknown)
-	log.Println("scard.StateUnavailable: ", scard.StateUnavailable)
-	log.Println("scard.StateEmpty: ", scard.StateEmpty)
-	log.Println("scard.StatePresent: ", scard.StatePresent)
-	log.Println("scard.StateAtrmatch: ", scard.StateAtrmatch)
-	log.Println("scard.StateExclusive: ", scard.StateExclusive)
-	log.Println("scard.StateInuse: ", scard.StateInuse)
-	log.Println("scard.StateMute: ", scard.StateMute)
-	log.Println("scard.StateUnpowered: ", scard.StateUnpowered)
+	qrMode := getEnv("QR_MODE", "1") == "1"
 
 	log.Printf("[agent] starting — signal=%s room=%s qr_mode=%v", signalURL, roomID, qrMode)
 
@@ -71,8 +57,10 @@ func main() {
 
 	manager = agentwebrtc.NewManager(sigClient)
 
-	// Connect to signaling server (auto-reconnects)
-	go sigClient.Connect()
+	if !qrMode {
+		// Connect to signaling server (auto-reconnects)
+		go sigClient.Connect()
+	}
 
 	// Start card reader — blocks until fatal error
 	cardEvents := make(chan pcsc.Event, 4)
