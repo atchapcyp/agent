@@ -8,15 +8,9 @@
 package real
 
 import (
-	"bufio"
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"log"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -241,136 +235,6 @@ func execAPDU(card *scard.Card, cmd []byte) ([]byte, error) {
 	}
 }
 
-// ── Bluetooth transport ───────────────────────────────────────────────────────
-
-// btEvent mirrors the JSON lines emitted by the btbridge subprocess.
-type btEvent struct {
-	Type  string          `json:"type"`
-	Data  json.RawMessage `json:"data,omitempty"`
-	Error string          `json:"error,omitempty"`
-}
-
-// btCardData matches btbridge's snake_case card_data payload.
-type btCardData struct {
-	IDNumber    string `json:"id_number"`
-	NameTH      string `json:"name_th"`
-	NameEN      string `json:"name_en"`
-	DateOfBirth string `json:"date_of_birth"`
-	Address     string `json:"address"`
-}
-
-func watchBluetooth(ch chan<- pcsc.Event) error {
-	bridgePath := btbridgePath()
-	if bridgePath == "" {
-		log.Println("[pcsc/bt] btbridge binary not found — Bluetooth disabled")
-		return nil // not fatal — USB still runs
-	}
-
-	log.Printf("[pcsc/bt] starting btbridge: %s", bridgePath)
-
-	for {
-		if err := runBTBridge(bridgePath, ch); err != nil {
-			log.Printf("[pcsc/bt] btbridge exited: %v — restarting in 5s", err)
-		}
-		time.Sleep(5 * time.Second)
-	}
-}
-
-func runBTBridge(bridgePath string, ch chan<- pcsc.Event) error {
-	cmd := exec.Command(bridgePath)
-	cmd.Stderr = os.Stderr
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("stdout pipe: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start: %w", err)
-	}
-	log.Printf("[pcsc/bt] btbridge started (pid=%d)", cmd.Process.Pid)
-
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-		var ev btEvent
-		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			log.Printf("[pcsc/bt] bad JSON: %v | %s", err, line)
-			continue
-		}
-		handleBTEvent(ev, ch)
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("process: %w", err)
-	}
-	return nil
-}
-
-func handleBTEvent(ev btEvent, ch chan<- pcsc.Event) {
-	switch ev.Type {
-	case "card_data":
-		var d btCardData
-		if err := json.Unmarshal(ev.Data, &d); err != nil {
-			log.Printf("[pcsc/bt] bad card_data payload: %v", err)
-			return
-		}
-		ch <- pcsc.Event{
-			Type: "card_inserted",
-			Data: &pcsc.CardData{
-				CID:     d.IDNumber,
-				NameTH:  d.NameTH,
-				NameEN:  d.NameEN,
-				DOB:     d.DateOfBirth,
-				Address: d.Address,
-			},
-		}
-	case "card_removed":
-		ch <- pcsc.Event{Type: "card_removed"}
-	case "status":
-		// informational only — log but don't emit to browser
-		log.Printf("[pcsc/bt] status: %s", ev.Data)
-	case "error":
-		log.Printf("[pcsc/bt] error from bridge: %s", ev.Error)
-	}
-}
-
-// btbridgePath returns the path to the btbridge binary, or empty string if not found.
-// Search order: BTBRIDGE_PATH env var → beside executable → ./btbridge (cwd).
-func btbridgePath() string {
-	ext := ""
-	if runtime.GOOS == "windows" {
-		ext = ".exe"
-	}
-
-	if p := os.Getenv("BTBRIDGE_PATH"); p != "" {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-		log.Printf("[pcsc/bt] BTBRIDGE_PATH=%s not found", p)
-		return ""
-	}
-
-	// Look beside the running executable
-	exe, err := os.Executable()
-	if err == nil {
-		candidate := filepath.Join(filepath.Dir(exe), "btbridge"+ext)
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-	}
-
-	// Fall back to cwd
-	candidateCWD := "./btbridge" + ext
-	if _, err := os.Stat(candidateCWD); err == nil {
-		return candidateCWD
-	}
-
-	return ""
-}
-
 // ── Encoding helpers ──────────────────────────────────────────────────────────
 
 func decodeTIS620(b []byte) string {
@@ -416,40 +280,3 @@ func decodeEventState(name string, eventState scard.StateFlag) {
 	log.Printf("[state] %-45s  raw=%-8d  counter=%-4d  flags=%s",
 		name, eventState, counter, strings.Join(active, " | "))
 }
-
-// Feitian bR301 (wired)
-
-// 2026/05/28 17:05:16 Feitian bR301 0  CurrentState[ 0 ]:  0
-// 2026/05/28 17:05:16 Feitian bR301 0  EventState[ 0 ]:  18 <-- actually, it attach to pc but no card but why value is like this?
-
-// 2026/05/28 17:07:46 Feitian bR301 0  CurrentState[ 0 ]:  0
-// 2026/05/28 17:07:46 Feitian bR301 0  EventState[ 0 ]:  65826 <-- actually, it attach to pc and has a card but why value is like this?
-
-// --------
-
-// Feitian bR301 (bluetooth, enabled on Device Manager even turn off)
-
-// 2026/05/28 16:53:14 FT bR301 0  CurrentState[ 0 ]:  0
-// 2026/05/28 16:53:14 FT bR301 0  EventState[ 0 ]:  917522 <-- actually, it turn off but why value is like this?
-
-// 2026/05/28 17:01:10 FT bR301 0  CurrentState[ 0 ]:  0
-// 2026/05/28 17:01:10 FT bR301 0  EventState[ 0 ]:  917522 <-- actually, it turn on but no card but why value is like this?
-
-// 2026/05/28 17:02:44 FT bR301 0  CurrentState[ 0 ]:  0
-// 2026/05/28 17:02:44 FT bR301 0  EventState[ 0 ]:  917522 <-- actually, it turn on and has a card but why value is like this?
-
-// 2026/05/28 17:05:16 FT bR301 0  CurrentState[ 0 ]:  0
-// 2026/05/28 17:05:16 FT bR301 0  EventState[ 0 ]:  917522 <-- actually, it turn on but no card (wired and appare as Feitian bR301 0 instead) but why value is like this?
-
-// 2026/05/28 17:07:46 FT bR301 0  CurrentState[ 0 ]:  0
-// 2026/05/28 17:07:46 FT bR301 0  EventState[ 0 ]:  917522 <-- actually, it turn on and has a card (wired and appare as Feitian bR301 0 instead) but why value is like this?
-
-// -----
-
-// Identiv uTrust 2700 R Smart Card Reader (wired)
-
-// 2026/05/28 16:53:14 Identiv uTrust 2700 R Smart Card Reader 0  CurrentState[ 0 ]:  0
-// 2026/05/28 16:53:14 Identiv uTrust 2700 R Smart Card Reader 0  EventState[ 0 ]:  18 <-- actually, it attach to pc but no card but why value is like this?
-
-// 2026/05/28 16:59:55 Identiv uTrust 2700 R Smart Card Reader 0  CurrentState[ 0 ]:  0
-// 2026/05/28 16:59:55 Identiv uTrust 2700 R Smart Card Reader 0  EventState[ 0 ]:  65826 <-- actually, it attach to pc and has a card but why value is like this?
