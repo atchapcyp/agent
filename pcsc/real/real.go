@@ -34,25 +34,15 @@ func New() pcsc.Reader { return &RealReader{} }
 // Watch starts both USB and Bluetooth monitors.
 // It blocks until both transports exit (which is normally never).
 func (r *RealReader) Watch(ch chan<- pcsc.Event) error {
-	done := make(chan error, 2)
+	done := make(chan error, 1)
 
 	go func() { done <- watchUSB(ch) }()
 
-	// if runtime.GOOS == "windows" {
-	// 	// On Windows, Bluetooth PC/SC readers are virtualized as standard PC/SC readers.
-	// 	// They are automatically handled by the watchUSB transport once paired.
-	// 	log.Println("[pcsc/real] Windows detected — Bluetooth reader is virtualized natively via PC/SC (no btbridge needed)")
-	// 	done <- nil
-	// } else {
-	// 	go func() { done <- watchBluetooth(ch) }()
-	// }
-
 	// Log errors from either transport; return only when both exit.
-	for i := 0; i < 2; i++ {
-		if err := <-done; err != nil {
-			log.Printf("[pcsc/real] transport exited: %v", err)
-		}
+	if err := <-done; err != nil {
+		log.Printf("[pcsc/real] transport exited: %v", err)
 	}
+
 	return fmt.Errorf("all PC/SC transports exited")
 }
 
@@ -159,14 +149,8 @@ func readCardUSB(ctx *scard.Context, readerName string) (*pcsc.CardData, error) 
 		if err != nil {
 			// Some virtual drivers (like Bluetooth PC/SC drivers) do not support Exclusive mode.
 			// Fall back to ShareShared if ShareExclusive fails.
-			log.Println("[pcsc/usb] ShareExclusive failed, falling back to ShareShared...")
-			card, err = ctx.Connect(readerName, scard.ShareShared, scard.ProtocolT0)
-			if err != nil {
-				card, err = ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
-				if err != nil {
-					return nil, fmt.Errorf("connect: %w", err)
-				}
-			}
+			log.Println("[pcsc/usb] ShareExclusive failed")
+			return nil, fmt.Errorf("connect: %w", err)
 		}
 	}
 	defer card.Disconnect(scard.LeaveCard)
