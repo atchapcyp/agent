@@ -7,7 +7,7 @@
 //
 // Env vars:
 //
-//	REST_PORT        listen port on 127.0.0.1 (default: 8080)
+//	REST_PORT        listen port on 127.0.0.1 (default: 7000)
 //	ALLOWED_ORIGINS  comma-separated exact origins allowed via CORS
 //	                 (e.g. "https://app.example.com,https://staging.example.com")
 //	                 empty = deny all cross-origin reads

@@ -67,8 +67,8 @@ func main() {
 	// REST transport: serve current card over loopback for browser fetch.
 	var api *httpapi.Server
 	if restMode {
-		port := getEnv("REST_PORT", "8080")
-		origins := splitOrigins(getEnv("ALLOWED_ORIGINS", ""))
+		port := getEnv("REST_PORT", "8083")
+		origins := splitOrigins(getEnv("ALLOWED_ORIGINS", "https://localhost:3000"))
 		api = httpapi.New(port, origins)
 		go func() {
 			if err := api.Start(); err != nil {
