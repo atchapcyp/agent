@@ -2,8 +2,9 @@ BINARY      := agent
 BINARY_WIN  := agent.exe
 SIGNAL      := wss://signal-production-b59d.up.railway.app/ws
 ROOM        := demo-room-2
+ORIGINS     := http://localhost:3000
 
-.PHONY: build build-windows run run-mock run-mock-qr run-qr run-bt clean
+.PHONY: build build-windows run run-mock run-mock-qr run-qr run-bt run-rest run-mock-rest run-rest-win run-mock-rest-win clean
 
 ## build — compile binary (current OS)
 build:
@@ -36,6 +37,22 @@ run-qr: build
 ## run-bt — real USB + Bluetooth (btbridge must be beside binary)
 run-bt: build
 	SIGNAL_URL=$(SIGNAL) ROOM_ID=$(ROOM) ./$(BINARY)
+
+## run-rest — real USB reader + local REST endpoint (GET http://127.0.0.1:47890/api/card)
+run-rest: build
+	TRANSPORT=rest QR_MODE=0 ALLOWED_ORIGINS=$(ORIGINS) ./$(BINARY)
+
+## run-mock-rest — stdin mock + local REST endpoint
+run-mock-rest: build
+	PCSC_MOCK=1 TRANSPORT=rest QR_MODE=0 ALLOWED_ORIGINS=$(ORIGINS) ./$(BINARY)
+
+## run-rest-win — real USB reader + REST endpoint (Windows)
+run-rest-win: build-windows
+	powershell -Command "$$env:TRANSPORT='rest'; $$env:QR_MODE='0'; $$env:ALLOWED_ORIGINS='$(ORIGINS)'; .\\$(BINARY_WIN)"
+
+## run-mock-rest-win — stdin mock + REST endpoint (Windows)
+run-mock-rest-win: build-windows-dev
+	powershell -Command "$$env:PCSC_MOCK='1'; $$env:TRANSPORT='rest'; $$env:QR_MODE='0'; $$env:ALLOWED_ORIGINS='$(ORIGINS)'; .\\$(BINARY_WIN)"
 
 
 ## run-win — real PC/SC reader (Windows)

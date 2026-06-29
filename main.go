@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/mdp/qrterminal/v3"
+	"github.com/ntl/thai-id-card-reader/agent/httpapi"
 	"github.com/ntl/thai-id-card-reader/agent/pcsc"
 	"github.com/ntl/thai-id-card-reader/agent/pcsc/real"
 	agentsignaling "github.com/ntl/thai-id-card-reader/agent/signaling"
@@ -19,7 +21,12 @@ func main() {
 
 	qrMode := getEnv("QR_MODE", "1") == "1"
 
-	log.Printf("[agent] starting — signal=%s room=%s qr_mode=%v", signalURL, roomID, qrMode)
+	// Transport: "rest" (default) serves card over loopback REST; "webrtc"
+	// uses the legacy signaling + data-channel broadcast path.
+	transport := getEnv("TRANSPORT", "rest")
+	restMode := transport != "webrtc"
+
+	log.Printf("[agent] starting — transport=%s signal=%s room=%s qr_mode=%v", transport, signalURL, roomID, qrMode)
 
 	// ── Select PC/SC adapter ─────────────────────────────────────────────────
 	// PCSC_MOCK=1  → stdin mock (press Enter to insert/remove card)
@@ -57,8 +64,19 @@ func main() {
 
 	manager = agentwebrtc.NewManager(sigClient)
 
-	if !qrMode {
-		// Connect to signaling server (auto-reconnects)
+	// REST transport: serve current card over loopback for browser fetch.
+	var api *httpapi.Server
+	if restMode {
+		port := getEnv("REST_PORT", "8080")
+		origins := splitOrigins(getEnv("ALLOWED_ORIGINS", ""))
+		api = httpapi.New(port, origins)
+		go func() {
+			if err := api.Start(); err != nil {
+				log.Fatalf("[agent] http api fatal: %v", err)
+			}
+		}()
+	} else if !qrMode {
+		// WebRTC transport: connect to signaling server (auto-reconnects).
 		go sigClient.Connect()
 	}
 
@@ -75,23 +93,31 @@ func main() {
 		switch event.Type {
 		case "card_inserted":
 			if event.Data == nil {
-				log.Println("[agent] card inserted but read failed — skipping broadcast")
+				log.Println("[agent] card inserted but read failed — skipping")
 				continue
 			}
 			if qrMode {
 				printCardQR(event.Data)
 			}
-			manager.Broadcast(map[string]any{
-				"event": "card_inserted",
-				"data":  event.Data,
-			})
+			if restMode {
+				api.SetCard(event.Data)
+			} else {
+				manager.Broadcast(map[string]any{
+					"event": "card_inserted",
+					"data":  event.Data,
+				})
+			}
 		case "card_removed":
 			if qrMode {
 				fmt.Println("[qr] Card removed.")
 			}
-			manager.Broadcast(map[string]any{
-				"event": "card_removed",
-			})
+			if restMode {
+				api.ClearCard()
+			} else {
+				manager.Broadcast(map[string]any{
+					"event": "card_removed",
+				})
+			}
 		}
 	}
 }
@@ -113,4 +139,16 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// splitOrigins parses a comma-separated ALLOWED_ORIGINS value into a slice,
+// trimming spaces and dropping empties.
+func splitOrigins(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
