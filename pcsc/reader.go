@@ -9,19 +9,6 @@ type Reader interface {
 	Watch(ch chan<- Event) error
 }
 
-// CardData represents Thai ID card fields.
-type CardData struct {
-	CID        string `json:"cid"`
-	NameTH     string `json:"nameTH"`
-	NameEN     string `json:"nameEN"`
-	DOB        string `json:"dob"`
-	Gender     string `json:"gender,omitempty"`
-	CardIssuer string `json:"cardIssuer,omitempty"`
-	IssueDate  string `json:"issueDate,omitempty"`
-	ExpireDate string `json:"expireDate,omitempty"`
-	Address    string `json:"address"`
-}
-
 type Gender string
 
 const (
