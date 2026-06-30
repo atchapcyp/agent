@@ -14,16 +14,38 @@ type MockReader struct{}
 // NewMock returns a Reader backed by stdin keypresses.
 func NewMock() Reader { return &MockReader{} }
 
-var mockCard = CardData{
-	CID:        "1234567890123",
-	NameTH:     "นาย สมชาย ใจดี",
-	NameEN:     "MR. SOMCHAI JAIDEE",
-	DOB:        "19900115",
-	Gender:     "1",
-	CardIssuer: "สำนักงานเขตบางรัก",
-	IssueDate:  "20200101",
-	ExpireDate: "20300101",
-	Address:    "123 ถนนสีลม แขวงสีลม เขตบางรัก กรุงเทพมหานคร 10500",
+var mockCard = CitizenInfo{
+	CitizenID:    ptr("1101700203456"),
+	TitleTH:      ptr("นาย"),
+	FirstNameTH:  ptr("สิทธิเดช"),
+	MiddleNameTH: ptr(""),
+	LastNameTH:   ptr("ปวุตินันท์"),
+
+	TitleEN:      ptr("Mr."),
+	FirstNameEN:  ptr("Sittidet"),
+	MiddleNameEN: ptr(""),
+	LastNameEN:   ptr("Pawutinan"),
+
+	DOB:        ptr("25440525"),
+	Gender:     ptr(GenderMale),
+	CardIssuer: ptr("ท้องถิ่นเขตปทุมวัน/กรุงเทพมหานคร"),
+	IssueDate:  ptr("25680727"),
+	ExpireDate: ptr("25770524"),
+
+	Address: &Address{
+		HouseNo:     ptr("236/172"),
+		Moo:         ptr("10"),
+		Alley:       ptr(""),
+		Soi:         ptr("สุขุมวิท 24"),
+		Road:        ptr("สุขุมวิท"),
+		SubDistrict: ptr("คลองตัน"),
+		District:    ptr("คลองเตย"),
+		Province:    ptr("กรุงเทพมหานคร"),
+	},
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }
 
 func (m *MockReader) Watch(ch chan<- Event) error {

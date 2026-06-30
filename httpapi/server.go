@@ -28,7 +28,7 @@ const cardPath = "/api/thai-nat-id-card"
 // Server holds the latest card state and serves it over HTTP.
 type Server struct {
 	mu   sync.RWMutex
-	card *pcsc.CardData
+	card *pcsc.CitizenInfo
 
 	addr           string
 	allowedOrigins map[string]struct{}
@@ -52,7 +52,7 @@ func New(port string, allowedOrigins []string) *Server {
 }
 
 // SetCard stores the latest successfully read card.
-func (s *Server) SetCard(card *pcsc.CardData) {
+func (s *Server) SetCard(card *pcsc.CitizenInfo) {
 	s.mu.Lock()
 	s.card = card
 	s.mu.Unlock()
@@ -75,7 +75,7 @@ func (s *Server) Start() error {
 
 // dataEnvelope wraps a successful read: {"data": {...CardData}}.
 type dataEnvelope struct {
-	Data *pcsc.CardData `json:"data"`
+	Data *pcsc.CitizenInfo `json:"data"`
 }
 
 // errorEnvelope wraps a failure: {"error": {"message": "..."}}.

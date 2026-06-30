@@ -123,8 +123,6 @@ func waitForUSBReader(ctx *scard.Context) (string, error) {
 				for index, state := range states {
 					log.Println(name, " state[", index, "] - EventState: ", state.EventState)
 					decodeEventState(name, state.EventState)
-					// log.Println(name, " CurrentState[", index, "]: ", state.CurrentState)
-					// log.Println(name, " EventState[", index, "]: ", state.EventState)
 				}
 			}
 
@@ -135,7 +133,7 @@ func waitForUSBReader(ctx *scard.Context) (string, error) {
 	}
 }
 
-func readCardUSB(ctx *scard.Context, readerName string) (*pcsc.CardData, error) {
+func readCardUSB(ctx *scard.Context, readerName string) (*pcsc.CitizenInfo, error) {
 	// Try ShareExclusive first (recommended for USB readers to prevent CertPropSvc interference).
 	card, err := ctx.Connect(readerName, scard.ShareExclusive, scard.ProtocolT0)
 	if err != nil {
@@ -156,49 +154,72 @@ func readCardUSB(ctx *scard.Context, readerName string) (*pcsc.CardData, error) 
 	if err != nil {
 		fmt.Println(fmt.Errorf("READ CID: %w", err))
 	}
+	cid := trimASCII(cidBytes)
+
 	nameTHBytes, err := execAPDU(card, cmdNameTH)
 	if err != nil {
 		fmt.Println(fmt.Errorf("READ NameTH: %w", err))
 	}
+	titleTH, firstNameTH, middleNameTH, lastNameTH := splitFullName(decodeTIS620(nameTHBytes))
+
 	nameENBytes, err := execAPDU(card, cmdNameEN)
 	if err != nil {
 		fmt.Println(fmt.Errorf("READ NameEN: %w", err))
 	}
+	titleEN, firstNameEN, middleNameEN, lastNameEN := splitFullName(decodeTIS620(nameENBytes))
+
 	dobBytes, err := execAPDU(card, cmdDOB)
 	if err != nil {
 		fmt.Println(fmt.Errorf("READ DOB: %w", err))
 	}
+	dob := trimASCII(dobBytes)
+
 	addressBytes, err := execAPDU(card, cmdAddress)
 	if err != nil {
 		fmt.Println(fmt.Errorf("READ Address: %w", err))
 	}
+	address := decodeAddress(decodeTIS620(addressBytes))
+
 	genderBytes, err := execAPDU(card, cmdGender)
 	if err != nil {
 		fmt.Println(fmt.Errorf("READ Gender: %w", err))
 	}
+	gender := decodeGender(trimASCII(genderBytes))
+
 	issueDateBytes, err := execAPDU(card, cmdIssueDate)
 	if err != nil {
 		fmt.Println(fmt.Errorf("READ IssueDate: %w", err))
 	}
+	issueDate := trimASCII(issueDateBytes)
+
 	expireDateBytes, err := execAPDU(card, cmdExpireDate)
 	if err != nil {
 		fmt.Println(fmt.Errorf("READ ExpireDate: %w", err))
 	}
+	expireDate := trimASCII(expireDateBytes)
+
 	cardIssuerBytes, err := execAPDU(card, cmdCardIssuer)
 	if err != nil {
 		fmt.Println(fmt.Errorf("READ CardIssuer: %w", err))
 	}
+	cardIssuer := decodeTIS620(cardIssuerBytes)
 
-	return &pcsc.CardData{
-		CID:        trimASCII(cidBytes),
-		NameTH:     decodeTIS620(nameTHBytes),
-		NameEN:     trimASCII(nameENBytes),
-		DOB:        trimASCII(dobBytes),
-		Address:    decodeTIS620(addressBytes),
-		Gender:     trimASCII(genderBytes),
-		IssueDate:  trimASCII(issueDateBytes),
-		ExpireDate: trimASCII(expireDateBytes),
-		CardIssuer: decodeTIS620(cardIssuerBytes),
+	return &pcsc.CitizenInfo{
+		CitizenID:    &cid,
+		TitleTH:      &titleTH,
+		FirstNameTH:  &firstNameTH,
+		MiddleNameTH: &middleNameTH,
+		LastNameTH:   &lastNameTH,
+		TitleEN:      &titleEN,
+		FirstNameEN:  &firstNameEN,
+		MiddleNameEN: &middleNameEN,
+		LastNameEN:   &lastNameEN,
+		DOB:          &dob,
+		Address:      address,
+		Gender:       gender,
+		IssueDate:    &issueDate,
+		ExpireDate:   &expireDate,
+		CardIssuer:   &cardIssuer,
 	}, nil
 }
 
@@ -279,4 +300,83 @@ func decodeEventState(name string, eventState scard.StateFlag) {
 
 	log.Printf("[state] %-45s  raw=%-8d  counter=%-4d  flags=%s",
 		name, eventState, counter, strings.Join(active, " | "))
+}
+
+func splitFullName(fullName string) (string, string, string, string) {
+	splitedNames := strings.Split(fullName, "#")
+	var title string
+	if len(splitedNames) > 0 && len(splitedNames[0]) > 0 {
+		title = splitedNames[0]
+	}
+	var firstName string
+	if len(splitedNames) > 1 && len(splitedNames[1]) > 0 {
+		firstName = splitedNames[1]
+	}
+	var middleName string
+	if len(splitedNames) > 2 && len(splitedNames[2]) > 0 {
+		middleName = splitedNames[2]
+	}
+	var lastName string
+	if len(splitedNames) > 3 && len(splitedNames[3]) > 0 {
+		lastName = splitedNames[3]
+	}
+	return title, firstName, middleName, lastName
+}
+
+func decodeGender(baseGender string) *pcsc.Gender {
+	var g pcsc.Gender
+	switch baseGender {
+	case "1":
+		g = pcsc.GenderMale
+	case "2":
+		g = pcsc.GenderFemale
+	}
+	return &g
+}
+
+func decodeAddress(baseAddress string) *pcsc.Address {
+	splitedBaseAddress := strings.Split(baseAddress, "#")
+
+	var houseNo *string
+	if len(splitedBaseAddress) > 0 && len(splitedBaseAddress[0]) > 0 {
+		houseNo = &splitedBaseAddress[0]
+	}
+	var moo *string
+	if len(splitedBaseAddress) > 1 && len(splitedBaseAddress[1]) > 0 {
+		moo = &splitedBaseAddress[1]
+	}
+	var alley *string
+	if len(splitedBaseAddress) > 2 && len(splitedBaseAddress[2]) > 0 {
+		alley = &splitedBaseAddress[2]
+	}
+	var soi *string
+	if len(splitedBaseAddress) > 3 && len(splitedBaseAddress[3]) > 0 {
+		soi = &splitedBaseAddress[3]
+	}
+	var road *string
+	if len(splitedBaseAddress) > 4 && len(splitedBaseAddress[4]) > 0 {
+		road = &splitedBaseAddress[4]
+	}
+	var subDistrict *string
+	if len(splitedBaseAddress) > 5 && len(splitedBaseAddress[5]) > 0 {
+		subDistrict = &splitedBaseAddress[5]
+	}
+	var district *string
+	if len(splitedBaseAddress) > 6 && len(splitedBaseAddress[6]) > 0 {
+		district = &splitedBaseAddress[6]
+	}
+	var province *string
+	if len(splitedBaseAddress) > 7 && len(splitedBaseAddress[7]) > 0 {
+		province = &splitedBaseAddress[7]
+	}
+	return &pcsc.Address{
+		HouseNo:     houseNo,
+		Moo:         moo,
+		Alley:       alley,
+		Soi:         soi,
+		Road:        road,
+		SubDistrict: subDistrict,
+		District:    district,
+		Province:    province,
+	}
 }

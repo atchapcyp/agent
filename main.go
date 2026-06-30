@@ -122,7 +122,7 @@ func main() {
 	}
 }
 
-func printCardQR(data *pcsc.CardData) {
+func printCardQR(data *pcsc.CitizenInfo) {
 	b, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("[qr] marshal failed: %v", err)
